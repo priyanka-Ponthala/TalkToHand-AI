@@ -1,0 +1,24 @@
+# Environments
+venv/
+env/
+.env
+
+# Python junk
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data (Keep these local for now)
+*.csv
+
+# AI Models (These will be very large later!)
+*.h5
+*.keras
+*.tflite
+
+# System files
+.DS_Store
+Thumbs.db
+
+# VS Code settings
+.vscode/

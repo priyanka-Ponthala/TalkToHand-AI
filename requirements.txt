@@ -1,0 +1,9 @@
+opencv-python
+mediapipe
+tensorflow
+numpy
+pandas
+streamlit
+gTTS
+SpeechRecognition
+PyAudio
