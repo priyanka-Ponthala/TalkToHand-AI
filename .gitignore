@@ -9,7 +9,7 @@ __pycache__/
 *$py.class
 
 # Data (Keep these local for now)
-*.csv
+
 
 # AI Models (These will be very large later!)
 *.h5
