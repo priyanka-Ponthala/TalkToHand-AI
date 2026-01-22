@@ -22,3 +22,5 @@ Thumbs.db
 
 # VS Code settings
 .vscode/
+
+*.csv
