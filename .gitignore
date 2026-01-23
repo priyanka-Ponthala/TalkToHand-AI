@@ -15,7 +15,7 @@ __pycache__/
 *.h5
 *.keras
 *.tflite
-
+*.pkl
 # System files
 .DS_Store
 Thumbs.db
