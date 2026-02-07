@@ -8,6 +8,8 @@ from gtts import gTTS
 import os
 import pygame
 import base64
+import time
+import google.generativeai as genai
 from mediapipe.python.solutions import hands as mp_hands
 from mediapipe.python.solutions import drawing_utils as mp_draw
 
@@ -17,62 +19,67 @@ st.set_page_config(page_title="TalkToHand AI", layout="wide", page_icon="🤟")
 if not pygame.mixer.get_init():
     pygame.mixer.init()
 
-# --- 2. THE FIXERS (Audio & Logic) ---
+# --- 2. AI GRAMMAR ENGINE SETUP (GEMINI) ---
+genai.configure(api_key="AIzaSyD7SjFKZB7wh73vef4Gb_bW5S5ubJAwPbE")
+llm = genai.GenerativeModel('gemini-2.5-flash')
+
+def fix_grammar(keyword_list):
+    """Turns Sign Language keywords into natural English sentences using Gemini AI"""
+    if not keyword_list:
+        return ""
+    
+    # Convert list to string and remove underscores: ["THANK_YOU", "I"] -> "THANK YOU I"
+    raw_input = " ".join([k.replace("_", " ") for k in keyword_list])
+    
+    prompt = f"Translate these sign language keywords into one natural, polite English sentence: {raw_input}. Return ONLY the corrected sentence."
+    
+    try:
+        response = llm.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return raw_input # Fallback to raw if API fails
+
+# --- 3. THE LOGIC FIXERS (Audio & Speech Mapping) ---
 
 def clean_for_audio(text):
-    """Fixes the 'I_LOVE_YOU' spelling problem by removing underscores for natural speech"""
     return text.replace("_", " ").strip()
 
 def get_gif_label(text):
-    """Aggressive Phonetic Map to catch the difficult 'F' sound and others"""
+    """Phonetic Map to catch difficult sounds like 'F' and single letters"""
     text = text.upper().strip()
     
-    # 1. THE F-SHIELD: If any of these are heard, force it to 'f'
+    # F-Trigger Protection
     f_triggers = ["F", "EFF", "IF", "OFF", "FOR", "AF", "EF", "S", "PH", "HALF", "FOUR", "FRY"]
     if any(word == text for word in f_triggers) or "LETTER F" in text:
         return "f"
     
-    # 2. General Phonetic Map for A, B, C and Phrases
     phonetic_map = {
-        # A Variants
-        "A": "a", "HAY": "a", "AY": "a", "EYE": "a", "EH": "a", "AN": "a", "AND": "a",
-        # B Variants
-        "B": "b", "BEE": "b", "BE": "b", "ME": "b", "DEE": "b", "PEE": "b", "TEA": "b",
-        # C Variants
+        "A": "a", "HAY": "a", "AY": "a", "EYE": "a", "EH": "a", "AN": "a",
+        "B": "b", "BEE": "b", "BE": "b", "ME": "b", "DEE": "b", "PEE": "b",
         "C": "c", "SEE": "c", "SEA": "c", "SHE": "c", "SI": "c", "SAY": "c",
-        # Word Phrases
         "THANK YOU": "thank_you", "I LOVE YOU": "i_love_you",
         "HELLO": "hello", "YES": "yes", "NO": "no", "HELP": "help", "PLEASE": "please"
     }
     
-    if text in phonetic_map:
-        return phonetic_map[text]
-    
-    # 3. Logic: If user says "Letter [X]", extract the last character
-    if "LETTER" in text:
-        parts = text.split()
-        return parts[-1].lower()[0]
-
-    # 4. Default: Lowercase and underscores
+    if text in phonetic_map: return phonetic_map[text]
+    if "LETTER" in text: return text.split()[-1].lower()[0]
     return text.lower().replace(" ", "_")
 
-# --- 3. HELPER FUNCTIONS ---
+# --- 4. HELPER FUNCTIONS ---
 
 def display_gif(sign_label):
-    """Looks for lowercase gifs in assets folder"""
     path = f"assets/{sign_label}.gif"
     if os.path.exists(path):
         with open(path, "rb") as f:
             data_url = base64.b64encode(f.read()).decode("utf-8")
         st.markdown(
-            f'<img src="data:image/gif;base64,{data_url}" width="450" style="border-radius:15px; border:4px solid #4CAF50;">',
+            f'<img src="data:image/gif;base64,{data_url}" width="450" style="border-radius:15px; border:4px solid #4CAF50; box-shadow: 0px 4px 15px rgba(0,255,0,0.3);">',
             unsafe_allow_html=True
         )
     else:
-        st.warning(f"File not found: {path}. Check your assets folder!")
+        st.warning(f"Visual asset for '{sign_label}' not found.")
 
 def speak(text):
-    """Speaks text naturally (sentence mode)"""
     try:
         clean_text = clean_for_audio(text)
         tts = gTTS(text=clean_text, lang='en')
@@ -93,28 +100,43 @@ def load_assets():
 
 model, label_encoder = load_assets()
 
-# --- 4. UI NAVIGATION ---
-page = st.sidebar.selectbox("Select Mode:", ["🏠 Home", "📽️ Sign to Speech", "👂 Speech to Sign"])
+# --- 5. UI NAVIGATION ---
+st.sidebar.title("🎮 TalkToHand AI")
+page = st.sidebar.selectbox("Navigate:", ["🏠 Home", "📽️ Sign to Speech", "👂 Speech to Sign"])
 
 if page == "🏠 Home":
-    st.title("TalkToHand AI: Final Bridge 🤟")
+    st.title("TalkToHand AI: Smart Translator 🤟")
     st.image("https://img.freepik.com/free-vector/sign-language-concept-illustration_114360-6340.jpg", width=500)
-    st.write("Bidirectional Sign Language translation is ready.")
+    st.markdown("""
+    ### Features:
+    - **Sign to Speech:** Real-time gesture detection with **AI Grammar Correction**.
+    - **Speech to Sign:** Voice-activated visual cues with phonetic mapping.
+    """)
 
-# --- PAGE 1: SIGN TO SPEECH ---
+# --- PAGE 1: SIGN TO SPEECH (With Gemini AI) ---
 elif page == "📽️ Sign to Speech":
-    st.title("Sign to Natural Speech 🔊")
+    st.title("Sign Language to Natural English 🔊")
     if 'sentence' not in st.session_state: st.session_state.sentence = []
     
     c1, c2 = st.columns([2, 1])
     with c1:
-        run_cam = st.checkbox("Webcam Toggle")
+        run_cam = st.checkbox("Toggle Webcam")
         vid_area = st.empty()
     with c2:
-        st.subheader("Recognized Phrase")
-        readable_text = " ".join([clean_for_audio(s) for s in st.session_state.sentence])
-        st.success(readable_text if readable_text else "Sign something to begin...")
-        if st.button("🔊 Speak Full Thought"): speak(readable_text)
+        st.subheader("Recognized Keywords")
+        raw_words = " ".join([clean_for_audio(s) for s in st.session_state.sentence])
+        st.info(raw_words if raw_words else "Waiting for gestures...")
+        
+        # --- GEMINI AI INTEGRATION ---
+        if st.button("✨ Translate & Speak (AI)"):
+            if st.session_state.sentence:
+                with st.spinner("Gemini AI is forming a sentence..."):
+                    proper_sentence = fix_grammar(st.session_state.sentence)
+                    st.success(f"**AI Translation:** {proper_sentence}")
+                    speak(proper_sentence)
+            else:
+                st.warning("Please sign a few words first.")
+
         if st.button("🗑️ Clear All"):
             st.session_state.sentence = []
             st.rerun()
@@ -136,44 +158,43 @@ elif page == "📽️ Sign to Speech":
                     for lm in hl.landmark: coords.extend([lm.x, lm.y, lm.z])
                     out = model.predict(np.array([coords]), verbose=0)
                     label = label_encoder.inverse_transform([np.argmax(out)])[0]
+                    
                     if np.max(out) > 0.96:
                         cv2.putText(frame, label, (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
-                        if label == last_sign: frames_held += 1
-                        else: frames_held, last_sign = 0, label
+                        
+                        if label == last_sign: 
+                            frames_held += 1
+                        else: 
+                            frames_held, last_sign = 0, label
+                        
                         if frames_held == 22:
-                            if label == "CLEAR": st.session_state.sentence = []
+                            if label == "CLEAR": 
+                                st.session_state.sentence = []
+                                st.rerun()
                             else:
-                                st.session_state.sentence.append(label)
-                                speak(label)
-                            frames_held = 0
-                            st.rerun()
+                                if label not in ["SPACE"]:
+                                    st.session_state.sentence.append(label)
+                                    speak(label)
+                                frames_held = 0
+                                st.rerun()
             vid_area.image(frame, channels="BGR")
         cap.release()
 
-# --- PAGE 2: SPEECH TO SIGN (F-SOUND OPTIMIZED) ---
+# --- PAGE 2: SPEECH TO SIGN ---
 elif page == "👂 Speech to Sign":
-    st.title("Speech to Visual Sign 👂")
-    st.info("💡 **Tip:** If 'F' is not working, try saying **'Letter F'** or **'Eff'** clearly.")
-
+    st.title("Hearing Person to Visual Sign 👂")
+    
     if st.button("🔴 Start Microphone"):
         r = sr.Recognizer()
-        # Lower threshold (250) helps hear the quiet 'F' sound
-        r.energy_threshold = 250 
-        r.dynamic_energy_threshold = False
-        
+        r.energy_threshold = 300 
         with sr.Microphone() as source:
-            st.info("Calibrating... please stay silent.")
+            st.info("Listening...")
             r.adjust_for_ambient_noise(source, duration=0.6)
-            st.success("SPEAK NOW!")
             try:
-                audio_data = r.listen(source, timeout=5, phrase_time_limit=3)
+                audio_data = r.listen(source, timeout=5)
                 heard_text = r.recognize_google(audio_data).upper()
-                
-                # Debug line so you can see what the AI thinks it heard
-                st.write(f"AI Heard: `{heard_text}`")
-                
+                st.write(f"Recognized: `{heard_text}`")
                 final_sign_name = get_gif_label(heard_text)
                 display_gif(final_sign_name)
-                
-            except Exception as e:
-                st.error("Speech Recognition failed. Try speaking closer to the mic or saying 'Letter F'.")
+            except:
+                st.error("Speech Recognition failed. Try again.")
