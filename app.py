@@ -20,7 +20,7 @@ if not pygame.mixer.get_init():
     pygame.mixer.init()
 
 # --- 2. AI GRAMMAR ENGINE SETUP (GEMINI) ---
-genai.configure(api_key="AIzaSyD7SjFKZB7wh73vef4Gb_bW5S5ubJAwPbE")
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 llm = genai.GenerativeModel('gemini-2.5-flash')
 
 def fix_grammar(keyword_list):
