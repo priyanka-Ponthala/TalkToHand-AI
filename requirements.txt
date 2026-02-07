@@ -1,10 +1,10 @@
-opencv-python
+streamlit
+opencv-python-headless
 mediapipe
 tensorflow
 numpy
 pandas
-streamlit
+scikit-learn
+google-generativeai
 gTTS
 SpeechRecognition
-PyAudio
-pyttsx3
