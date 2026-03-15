@@ -6,35 +6,58 @@ import pickle
 import speech_recognition as sr
 from gtts import gTTS
 import os
+import pygame
 import base64
 import time
 import google.generativeai as genai
-
-# --- FIX FOR MEDIAPIPE ATTRIBUTE ERROR ---
 from mediapipe.python.solutions import hands as mp_hands
 from mediapipe.python.solutions import drawing_utils as mp_draw
 
 # --- 1. CORE PAGE CONFIGURATION ---
 st.set_page_config(page_title="TalkToHand AI", layout="wide", page_icon="🤟")
 
+if not pygame.mixer.get_init():
+    pygame.mixer.init()
+
 # --- 2. AI GRAMMAR ENGINE SETUP (GEMINI) ---
-if "GEMINI_API_KEY" in st.secrets:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    llm = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    st.error("API Key missing! Please add GEMINI_API_KEY to your .streamlit/secrets.toml")
+# Keeping your provided key
+genai.configure(api_key="AIzaSyD7SjFKZB7wh73vef4Gb_bW5S5ubJAwPbE")
+llm = genai.GenerativeModel('gemini-1.5-flash')
 
 def fix_grammar(keyword_list):
-    if not keyword_list: return ""
-    raw_input = " ".join([k.replace("_", " ") for k in keyword_list])
-    prompt = f"Translate these sign language keywords into one natural, polite English sentence: {raw_input}. Return ONLY the corrected sentence."
+    """Combines single letters into words and forms natural sentences"""
+    if not keyword_list:
+        return ""
+    
+    # NEW FEATURE: Join single letters (C, A, B -> CAB)
+    processed_list = []
+    temp_word = ""
+    
+    for item in keyword_list:
+        val = item.replace("_", " ").strip()
+        if len(val) == 1: # It's a single letter
+            temp_word += val
+        else: # It's a full word like "HELLO"
+            if temp_word:
+                processed_list.append(temp_word)
+                temp_word = ""
+            processed_list.append(val)
+    if temp_word:
+        processed_list.append(temp_word)
+    
+    raw_input = ", ".join(processed_list)
+    
+    # Prompt refined for better grammar
+    prompt = f"Translate these sign language keywords into one natural, polite English sentence: {raw_input}. If you see single words that were spelled out, join them correctly. Return ONLY the corrected sentence."
+    
     try:
         response = llm.generate_content(prompt)
         return response.text.strip()
-    except Exception:
-        return raw_input
+    except Exception as e:
+        return " ".join(processed_list) # Fallback
 
-# --- 3. LOGIC HELPERS ---
+# --- 3. THE LOGIC FIXERS ---
+
 def clean_for_audio(text):
     return text.replace("_", " ").strip()
 
@@ -51,9 +74,12 @@ def get_gif_label(text):
         "THANK YOU": "thank_you", "I LOVE YOU": "i_love_you",
         "HELLO": "hello", "YES": "yes", "NO": "no", "HELP": "help", "PLEASE": "please"
     }
+    
     if text in phonetic_map: return phonetic_map[text]
     if "LETTER" in text: return text.split()[-1].lower()[0]
     return text.lower().replace(" ", "_")
+
+# --- 4. HELPER FUNCTIONS ---
 
 def display_gif(sign_label):
     path = f"assets/{sign_label}.gif"
@@ -61,20 +87,24 @@ def display_gif(sign_label):
         with open(path, "rb") as f:
             data_url = base64.b64encode(f.read()).decode("utf-8")
         st.markdown(
-            f'<img src="data:image/gif;base64,{data_url}" width="450" style="border-radius:15px; border:4px solid #4CAF50;">',
+            f'<img src="data:image/gif;base64,{data_url}" width="450" style="border-radius:15px; border:4px solid #4CAF50; box-shadow: 0px 4px 15px rgba(0,255,0,0.3);">',
             unsafe_allow_html=True
         )
     else:
-        st.warning(f"Sign asset for '{sign_label}' not found.")
+        st.warning(f"Visual asset for '{sign_label}' not found.")
 
 def speak(text):
     try:
         clean_text = clean_for_audio(text)
         tts = gTTS(text=clean_text, lang='en')
-        tts.save("voice.mp3")
-        st.audio("voice.mp3", format="audio/mp3", autoplay=True)
-    except Exception as e:
-        st.error(f"Audio Error: {e}")
+        filename = f"voice_{int(time.time())}.mp3" # Unique filename to avoid collision
+        tts.save(filename)
+        pygame.mixer.music.load(filename)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy(): continue
+        pygame.mixer.music.unload()
+        os.remove(filename)
+    except: pass
 
 @st.cache_resource
 def load_assets():
@@ -85,96 +115,106 @@ def load_assets():
 
 model, label_encoder = load_assets()
 
-# --- 4. SESSION STATE ---
-if 'sentence' not in st.session_state:
-    st.session_state.sentence = []
-
 # --- 5. UI NAVIGATION ---
 st.sidebar.title("🎮 TalkToHand AI")
 page = st.sidebar.selectbox("Navigate:", ["🏠 Home", "📽️ Sign to Speech", "👂 Speech to Sign"])
 
 if page == "🏠 Home":
     st.title("TalkToHand AI: Smart Translator 🤟")
-    st.write("Welcome to the bidirectional translation bridge.")
     st.image("https://img.freepik.com/free-vector/sign-language-concept-illustration_114360-6340.jpg", width=500)
+    st.markdown("""
+    ### Features:
+    - **Sign to Speech:** Real-time gesture detection with **AI Grammar Correction**.
+    - **Speech to Sign:** Voice-activated visual cues with phonetic mapping.
+    """)
 
 elif page == "📽️ Sign to Speech":
     st.title("Sign Language to Natural English 🔊")
+    if 'sentence' not in st.session_state: st.session_state.sentence = []
     
     c1, c2 = st.columns([2, 1])
     with c1:
-        run_cam = st.toggle("Start Camera")
+        run_cam = st.checkbox("Toggle Webcam")
         vid_area = st.empty()
     with c2:
-        st.subheader("Detected Phrases")
-        word_list_display = st.empty()
+        st.subheader("Recognized Keywords")
+        # Display with space joining
+        raw_words = " ".join([clean_for_audio(s) for s in st.session_state.sentence])
+        st.info(raw_words if raw_words else "Waiting for gestures...")
         
         if st.button("✨ Translate & Speak (AI)"):
             if st.session_state.sentence:
-                with st.spinner("AI is thinking..."):
+                with st.spinner("Gemini AI is forming a sentence..."):
                     proper_sentence = fix_grammar(st.session_state.sentence)
                     st.success(f"**AI Translation:** {proper_sentence}")
                     speak(proper_sentence)
-        
+            else:
+                st.warning("Please sign a few words first.")
+
         if st.button("🗑️ Clear All"):
             st.session_state.sentence = []
-            word_list_display.info("List cleared.")
+            st.rerun()
 
     if run_cam:
         cap = cv2.VideoCapture(0)
-        # Using the explicitly imported mp_hands.Hands
-        with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.8) as hands_detector:
-            last_sign, frames_held = "", 0
-            while run_cam:
-                ret, frame = cap.read()
-                if not ret: break
-                frame = cv2.flip(frame, 1)
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = hands_detector.process(rgb_frame)
-                
-                if results.multi_hand_landmarks:
-                    for hl in results.multi_hand_landmarks:
-                        mp_draw.draw_landmarks(frame, hl, mp_hands.HAND_CONNECTIONS)
-                        coords = []
-                        for lm in hl.landmark: coords.extend([lm.x, lm.y, lm.z])
+        hands_mp = mp_hands.Hands(min_detection_confidence=0.85)
+        last_sign, frames_held = "", 0
+
+        while run_cam:
+            ret, frame = cap.read()
+            if not ret: break
+            frame = cv2.flip(frame, 1)
+            results = hands_mp.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            if results.multi_hand_landmarks:
+                for hl in results.multi_hand_landmarks:
+                    mp_draw.draw_landmarks(frame, hl, mp_hands.HAND_CONNECTIONS)
+                    coords = []
+                    for lm in hl.landmark: coords.extend([lm.x, lm.y, lm.z])
+                    out = model.predict(np.array([coords]), verbose=0)
+                    label = label_encoder.inverse_transform([np.argmax(out)])[0]
+                    
+                    if np.max(out) > 0.96:
+                        cv2.putText(frame, label, (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
                         
-                        out = model.predict(np.array([coords]), verbose=0)
-                        label = label_encoder.inverse_transform([np.argmax(out)])[0]
-                        conf = np.max(out)
+                        if label == last_sign: 
+                            frames_held += 1
+                        else: 
+                            frames_held, last_sign = 0, label
                         
-                        if conf > 0.96:
-                            cv2.putText(frame, f"{label} {int(conf*100)}%", (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                            
-                            if label == last_sign: frames_held += 1
-                            else: frames_held, last_sign = 0, label
-                            
-                            if frames_held == 25:
-                                if label == "CLEAR": st.session_state.sentence = []
-                                elif label != "SPACE":
+                        if frames_held == 22: # Lock-in threshold
+                            if label == "CLEAR": 
+                                st.session_state.sentence = []
+                                st.rerun()
+                            else:
+                                if label not in ["SPACE"]:
                                     st.session_state.sentence.append(label)
-                                    speak(label)
+                                    speak(label) # Speak individual word/letter immediately
                                 frames_held = 0
-                                # Update UI sidebar/list
-                                raw_words = " ".join([clean_for_audio(s) for s in st.session_state.sentence])
-                                word_list_display.info(raw_words)
-                
-                vid_area.image(frame, channels="BGR")
-            cap.release()
+                                st.rerun()
+            vid_area.image(frame, channels="BGR")
+        cap.release()
 
 elif page == "👂 Speech to Sign":
     st.title("Hearing Person to Visual Sign 👂")
-    text_input = st.text_input("Type a word:")
-    if text_input:
-        display_gif(get_gif_label(text_input))
+    
+    # Text Input Feature
+    manual_text = st.text_input("Type a word or phrase (e.g. Hello, Cab):")
+    if manual_text:
+        display_gif(get_gif_label(manual_text))
+
+    st.write("OR")
 
     if st.button("🔴 Start Microphone"):
         r = sr.Recognizer()
+        r.energy_threshold = 300 
         with sr.Microphone() as source:
             st.info("Listening...")
+            r.adjust_for_ambient_noise(source, duration=0.6)
             try:
-                audio = r.listen(source, timeout=5)
-                text = r.recognize_google(audio)
-                st.write(f"Recognized: {text}")
-                display_gif(get_gif_label(text))
+                audio_data = r.listen(source, timeout=5)
+                heard_text = r.recognize_google(audio_data).upper()
+                st.write(f"Recognized: `{heard_text}`")
+                final_sign_name = get_gif_label(heard_text)
+                display_gif(final_sign_name)
             except:
-                st.error("Speech Recognition failed.")
+                st.error("Speech Recognition failed. Try again.")
