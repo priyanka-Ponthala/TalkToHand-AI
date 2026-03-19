@@ -20,24 +20,28 @@ if not pygame.mixer.get_init():
     pygame.mixer.init()
 
 # --- 2. AI GRAMMAR ENGINE SETUP (GEMINI) ---
-# Keeping your provided key
 genai.configure(api_key="AIzaSyD7SjFKZB7wh73vef4Gb_bW5S5ubJAwPbE")
 llm = genai.GenerativeModel('gemini-1.5-flash')
 
 def fix_grammar(keyword_list):
-    """Combines single letters into words and forms natural sentences"""
+    """Refines Sign Language keywords into professional, natural English"""
     if not keyword_list:
         return ""
     
-    # NEW FEATURE: Join single letters (C, A, B -> CAB)
+    # STEP 1: Remove consecutive duplicates (e.g., ["HELLO", "HELLO", "I"] -> ["HELLO", "I"])
+    cleaned_keywords = []
+    for word in keyword_list:
+        if not cleaned_keywords or word != cleaned_keywords[-1]:
+            cleaned_keywords.append(word)
+
+    # STEP 2: Fingerspelling Joiner (C, A, B -> CAB)
     processed_list = []
     temp_word = ""
-    
-    for item in keyword_list:
+    for item in cleaned_keywords:
         val = item.replace("_", " ").strip()
-        if len(val) == 1: # It's a single letter
+        if len(val) == 1: 
             temp_word += val
-        else: # It's a full word like "HELLO"
+        else: 
             if temp_word:
                 processed_list.append(temp_word)
                 temp_word = ""
@@ -47,14 +51,25 @@ def fix_grammar(keyword_list):
     
     raw_input = ", ".join(processed_list)
     
-    # Prompt refined for better grammar
-    prompt = f"Translate these sign language keywords into one natural, polite English sentence: {raw_input}. If you see single words that were spelled out, join them correctly. Return ONLY the corrected sentence."
+    # STEP 3: Enhanced AI Prompting
+    prompt = f"""
+    You are an expert American Sign Language (ASL) interpreter. 
+    Task: Convert the following raw keywords into ONE single, grammatically correct, and natural English sentence.
+    
+    Raw Keywords: {raw_input}
+    
+    Rules:
+    - Join individual letters into meaningful words if they spell something.
+    - Add necessary words (like 'am', 'the', 'is', 'a') to make the sentence fluent.
+    - Fix the tense to make it sound natural (e.g., 'I, HELP' becomes 'I am here to help' or 'How can I help you?').
+    - Return ONLY the final corrected sentence. No explanations.
+    """
     
     try:
         response = llm.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        return " ".join(processed_list) # Fallback
+        return " ".join(processed_list)
 
 # --- 3. THE LOGIC FIXERS ---
 
@@ -97,7 +112,7 @@ def speak(text):
     try:
         clean_text = clean_for_audio(text)
         tts = gTTS(text=clean_text, lang='en')
-        filename = f"voice_{int(time.time())}.mp3" # Unique filename to avoid collision
+        filename = f"voice_{int(time.time())}.mp3"
         tts.save(filename)
         pygame.mixer.music.load(filename)
         pygame.mixer.music.play()
@@ -138,13 +153,12 @@ elif page == "📽️ Sign to Speech":
         vid_area = st.empty()
     with c2:
         st.subheader("Recognized Keywords")
-        # Display with space joining
         raw_words = " ".join([clean_for_audio(s) for s in st.session_state.sentence])
         st.info(raw_words if raw_words else "Waiting for gestures...")
         
         if st.button("✨ Translate & Speak (AI)"):
             if st.session_state.sentence:
-                with st.spinner("Gemini AI is forming a sentence..."):
+                with st.spinner("AI Interpreter is refining the sentence..."):
                     proper_sentence = fix_grammar(st.session_state.sentence)
                     st.success(f"**AI Translation:** {proper_sentence}")
                     speak(proper_sentence)
@@ -181,14 +195,14 @@ elif page == "📽️ Sign to Speech":
                         else: 
                             frames_held, last_sign = 0, label
                         
-                        if frames_held == 22: # Lock-in threshold
+                        if frames_held == 22: 
                             if label == "CLEAR": 
                                 st.session_state.sentence = []
                                 st.rerun()
                             else:
                                 if label not in ["SPACE"]:
                                     st.session_state.sentence.append(label)
-                                    speak(label) # Speak individual word/letter immediately
+                                    speak(label) 
                                 frames_held = 0
                                 st.rerun()
             vid_area.image(frame, channels="BGR")
@@ -197,7 +211,6 @@ elif page == "📽️ Sign to Speech":
 elif page == "👂 Speech to Sign":
     st.title("Hearing Person to Visual Sign 👂")
     
-    # Text Input Feature
     manual_text = st.text_input("Type a word or phrase (e.g. Hello, Cab):")
     if manual_text:
         display_gif(get_gif_label(manual_text))
